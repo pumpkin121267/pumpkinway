@@ -33,6 +33,23 @@ function pendingStats(posts) {
   return { posts: postsCount, comments: commentsCount, total: postsCount + commentsCount };
 }
 
+// Stable content fingerprint: lets clients skip re-rendering when nothing changed.
+function fingerprint(posts) {
+  let h = posts.length;
+  for (const post of posts) {
+    h = (h * 31 + (post.id || 0)) % 1e15;
+    h = (h * 31 + (post.status === "approved" ? 2 : 1)) % 1e15;
+    h = (h * 31 + (post.likes || 0)) % 1e15;
+    h = (h * 31 + ((post.comments || []).length)) % 1e15;
+    let ch = 0;
+    for (const comment of post.comments || []) {
+      ch = (ch * 31 + (comment.id || 0) + (comment.status === "approved" ? 2 : 1)) % 1e15;
+    }
+    h = (h * 31 + ch) % 1e15;
+  }
+  return h;
+}
+
 function publicPosts(posts) {
   return posts
     .filter((p) => p.status === "approved")
@@ -93,7 +110,7 @@ exports.handler = async (event) => {
       return json(200, {
         posts: admin ? posts : publicPosts(posts),
         pending: pendingStats(posts),
-        updatedAt: Date.now(),
+        updatedAt: fingerprint(posts),
       });
     }
 

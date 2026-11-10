@@ -4,15 +4,18 @@ A single shared group feed — post, react, and talk. One page, one group, one p
 
 ## What's hosted where
 
-- **GitHub Pages** (this repo, `main` branch): the static, read-only site at
-  `https://<your-username>.github.io/pumpkinway/`. It shows a published snapshot of the
-  approved posts (built from `data/posts.json` by `scripts/build-static.js`). Posting,
-  commenting, and liking are disabled on the static host.
-- **Live app** (optional, full features): run `server.js` yourself, or deploy to a host
-  that runs Node (e.g. Render, Railway, Fly.io) or Netlify (the function is in
-  `public/netlify/functions/api.js`). When the page detects a working `/api`, it
-  automatically switches to the live mode with posting, comments, likes, and admin
-  moderation.
+- **GitHub Pages** (this repo, `main` branch): the site at
+  `https://<your-username>.github.io/pumpkinway/`. It talks to the live API on
+  Netlify, so posting, comments, likes, and admin moderation all work. If the
+  API is unreachable, it falls back to a read-only snapshot of approved posts.
+- **Netlify** (live API + data): the function in `netlify/functions/api.js`
+  serves the API from `https://<your-site>.netlify.app` using Netlify Blobs
+  storage. Visiting the Netlify URL directly gives the same full site natively.
+  Set `ADMIN_PASS` in the Netlify site environment variables.
+- **Local development**: `npm start` runs `server.js` with the same API backed
+  by `data/posts.json`. The frontend automatically uses whichever API is
+  reachable (same-origin first, then the `REMOTE_API` host in
+  `public/index.html`, then the static snapshot).
 
 ## Local development (live mode)
 
@@ -23,26 +26,28 @@ npm start          # serves http://127.0.0.1:8765 with the full API
 Admin password defaults to `pumpkin2026` — override it with the `ADMIN_PASS`
 environment variable in any real deployment. Never commit a real password.
 
-## Updating the published feed on GitHub Pages
+## Updating the published feed
 
-1. Run `npm start`, open the site, and approve posts/comments as admin
-   (moderation writes to `data/posts.json`).
-2. Commit and push:
+Posts created on the live site are stored in Netlify Blobs — no redeploy needed.
+Approve them via the Admin button on the site (password = the `ADMIN_PASS` you
+set on Netlify).
+
+The static fallback snapshot (`public/api/posts.json`, built by
+`scripts/build-static.js` from `data/posts.json`) only shows if the API is ever
+unreachable. To refresh it after local `npm start` moderation sessions:
 
 ```bash
-git add data/posts.json
-git commit -m "Update feed"
+npm run build:static
+git add public/api/posts.json data/posts.json
+git commit -m "Update fallback snapshot"
 git push
 ```
 
-The GitHub Action (`.github/workflows/deploy.yml`) rebuilds `public/api/posts.json`
-and republishes the site automatically on every push to `main`.
-
 ## Repo layout
 
-- `public/` — the site (`index.html`, images, `api/posts.json` snapshot)
+- `public/` — the site (`index.html`, images, `api/posts.json` fallback snapshot)
 - `server.js` — local Node server + REST API (file storage in `data/posts.json`)
-- `public/netlify/functions/api.js` — Netlify Functions version of the same API
+- `netlify/functions/api.js` — Netlify Functions version of the same API (blobs storage)
 - `scripts/build-static.js` — generates the read-only feed snapshot
 - `firebase.json` / `netlify.toml` — configs for those hosting options
 

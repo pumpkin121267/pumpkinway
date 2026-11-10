@@ -6,8 +6,10 @@
       "createdAt": 1794276795890,
       "content": "Hello from shared API",
       "image": null,
-      "likes": 0,
-      "likedBy": [],
+      "likes": 1,
+      "likedBy": [
+        "test-voter"
+      ],
       "comments": [],
       "status": "approved"
     },
@@ -50,5 +52,5 @@
     "comments": 0,
     "total": 0
   },
-  "updatedAt": 1794279694136
+  "updatedAt": 1794280791885
 }

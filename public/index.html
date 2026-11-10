@@ -784,6 +784,10 @@
     const VOTER_KEY = "pumpkinway_voter";
     const POLL_MS = 2500;
 
+    // Live API host used when the site itself is static (e.g. GitHub Pages).
+    // Set to your API host, e.g. "https://pumpkinway-api.netlify.app".
+    const REMOTE_API = "";
+
     const seedMembers = ["Mira", "Jonah", "Ava", "Kenzo", "Lila", "Theo"];
 
     let selectedImage = null;
@@ -795,6 +799,7 @@
     let refreshing = false;
     let STATIC_MODE = false;
     let pollTimer = null;
+    let liveBase = null; // "" = same origin, REMOTE_API = remote host, null = not resolved yet
 
     if (!localStorage.getItem(VOTER_KEY)) {
       localStorage.setItem(VOTER_KEY, "v-" + Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -862,8 +867,9 @@
       return headers;
     }
 
-    async function api(path, options = {}) {
-      const res = await fetch("api" + path, {
+    async function apiAt(base, path, options = {}) {
+      const url = base ? base + "/api" + path : "api" + path;
+      const res = await fetch(url, {
         ...options,
         headers: adminHeaders(options.headers || {}),
       });
@@ -871,6 +877,20 @@
       try { data = await res.json(); } catch { data = null; }
       if (!res.ok) throw new Error((data && data.error) || "Request failed");
       return data;
+    }
+
+    async function probeBase(base) {
+      const url = base ? base + "/api/posts" : "api/posts";
+      const res = await fetch(url, { headers: adminHeaders() });
+      if (!res.ok) throw new Error("unavailable");
+      const data = await res.json();
+      if (!Array.isArray(data.posts)) throw new Error("bad response");
+      return data;
+    }
+
+    async function api(path, options = {}) {
+      if (liveBase === null) throw new Error("API not ready");
+      return apiAt(liveBase, path, options);
     }
 
     function collectMembers(posts) {
@@ -1004,7 +1024,24 @@
       if (refreshing) return;
       refreshing = true;
       try {
-        const data = STATIC_MODE ? await fetchStaticPosts() : await api("/posts");
+        let data;
+        if (STATIC_MODE) {
+          data = await fetchStaticPosts();
+        } else if (liveBase === null) {
+          const bases = REMOTE_API ? ["", REMOTE_API] : [""];
+          let found = false;
+          for (const base of bases) {
+            try {
+              data = await probeBase(base);
+              liveBase = base;
+              found = true;
+              break;
+            } catch {}
+          }
+          if (!found) throw new Error("Could not reach the live feed.");
+        } else {
+          data = await api("/posts");
+        }
         const changed = forceRender || data.updatedAt !== cache.updatedAt || isAdmin !== Boolean(adminPass && cache._admin);
         cache = { ...data, _admin: isAdmin };
         updateAdminNotifications(data.pending || { total: 0, posts: 0, comments: 0 });
@@ -1281,6 +1318,7 @@
       if (pass === null) return;
       adminPass = pass;
       try {
+        if (liveBase === null) await refresh(false);
         await api("/pending");
       } catch {
         adminPass = "";
