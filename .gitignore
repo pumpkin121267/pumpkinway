@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Local Netlify folder
+.netlify
+
+# Firebase local state
+.firebase
+firebase-debug.log
+
+# OS noise
+.DS_Store
+Thumbs.db

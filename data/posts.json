@@ -1,0 +1,57 @@
+[
+  {
+    "id": 1794276795890,
+    "author": "TestUser",
+    "createdAt": 1794276795890,
+    "content": "Hello from shared API",
+    "image": null,
+    "likes": 0,
+    "likedBy": [],
+    "comments": [],
+    "status": "approved"
+  },
+  {
+    "id": 1794276874695,
+    "author": "pumpkin7",
+    "createdAt": 1794276874695,
+    "content": "hello",
+    "image": null,
+    "likes": 0,
+    "likedBy": [],
+    "comments": [],
+    "status": "approved"
+  },
+  {
+    "id": 1794276923762,
+    "author": "pumpkin7",
+    "createdAt": 1794276923762,
+    "content": "hello9",
+    "image": null,
+    "likes": 0,
+    "likedBy": [],
+    "comments": [],
+    "status": "approved"
+  },
+  {
+    "id": 1794277293530,
+    "author": "pumpkin7",
+    "createdAt": 1794277293530,
+    "content": "hello",
+    "image": null,
+    "likes": 0,
+    "likedBy": [],
+    "comments": [],
+    "status": "approved"
+  },
+  {
+    "id": 1794277373102,
+    "author": "BrowserA",
+    "createdAt": 1794277373102,
+    "content": "Seen from another browser?",
+    "image": null,
+    "likes": 0,
+    "likedBy": [],
+    "comments": [],
+    "status": "pending"
+  }
+]
