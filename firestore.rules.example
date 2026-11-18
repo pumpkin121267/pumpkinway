@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // pumpkinway group feed: anyone can read, post, comment, like and moderate.
+    match /posts/{postId} {
+      allow read, create, update, delete: if true;
+    }
+
+    // Copy this file to firestore.rules (gitignored) and replace the password
+    // before running: firebase deploy --only firestore:rules --project pumpkinw
+    match /adminChecks/{checkId} {
+      allow create: if request.resource.data.keys().hasOnly(["pass", "at"])
+                    && request.resource.data.pass == "REPLACE_WITH_ADMIN_PASSWORD";
+      allow read, update, delete: if false;
+    }
+  }
+}

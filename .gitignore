@@ -11,3 +11,6 @@ firebase-debug.log
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Firebase rules contain the admin password — keep them local, never commit
+firestore.rules

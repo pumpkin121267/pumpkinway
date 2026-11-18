@@ -777,6 +777,8 @@
     </section>
   </main>
 
+  <script src="https://www.gstatic.com/firebasejs/13.2.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore-compat.js"></script>
   <script>
     const NICK_KEY = "pumpkinway_nick";
     const JOIN_KEY = "pumpkinway_joined";
@@ -787,6 +789,24 @@
     // Live API host used when the site itself is static (e.g. GitHub Pages).
     // Set to your API host, e.g. "https://pumpkinway-api.netlify.app".
     const REMOTE_API = "";
+
+    // Firestore is the primary backend for the published site (and works on any host).
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyC8KEXesgNrlBwbJYs22QYeO5qx_C3r89M",
+      authDomain: "pumpkinw.firebaseapp.com",
+      projectId: "pumpkinw",
+      appId: "1:300957214875:web:c1507801bf683ad76c3e3e",
+    };
+    let fbDb = null;
+    const IS_LOCAL_DEV = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || location.protocol === "file:";
+    if (!IS_LOCAL_DEV && window.firebase && FIREBASE_CONFIG.apiKey) {
+      try {
+        firebase.initializeApp(FIREBASE_CONFIG);
+        fbDb = firebase.firestore();
+      } catch (err) {
+        console.error("Firebase init failed", err);
+      }
+    }
 
     const seedMembers = ["Mira", "Jonah", "Ava", "Kenzo", "Lila", "Theo"];
 
@@ -888,7 +908,142 @@
       return data;
     }
 
+    function statsFor(posts) {
+      let postsCount = 0, commentsCount = 0;
+      for (const post of posts) {
+        if (post.status === "pending") postsCount += 1;
+        for (const comment of post.comments || []) {
+          if (comment.status === "pending") commentsCount += 1;
+        }
+      }
+      return { posts: postsCount, comments: commentsCount, total: postsCount + commentsCount };
+    }
+
+    function feedFingerprint(posts) {
+      let h = posts.length;
+      for (const post of posts) {
+        h = (h * 31 + (post.id || 0)) % 1e15;
+        h = (h * 31 + (post.status === "approved" ? 2 : 1)) % 1e15;
+        h = (h * 31 + (post.likes || 0)) % 1e15;
+        h = (h * 31 + ((post.comments || []).length)) % 1e15;
+        let ch = 0;
+        for (const comment of post.comments || []) {
+          ch = (ch * 31 + (comment.id || 0) + (comment.status === "approved" ? 2 : 1)) % 1e15;
+        }
+        h = (h * 31 + ch) % 1e15;
+      }
+      return h;
+    }
+
+    async function loadFeedPosts() {
+      const snap = await fbDb.collection("posts").get();
+      const posts = snap.docs.map((d) => ({ ...d.data(), id: Number(d.id) || d.data().id }));
+      posts.sort((a, b) => (a.createdAt || a.id) - (b.createdAt || b.id));
+      return posts;
+    }
+
+    async function firestoreApi(path, options = {}) {
+      const method = (options.method || "GET").toUpperCase();
+      const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
+      let body = {};
+      try { body = options.body ? JSON.parse(options.body) : {}; } catch {}
+
+      if (method === "GET" && parts[0] === "posts" && parts.length === 1) {
+        const posts = await loadFeedPosts();
+        const visible = isAdmin ? posts : posts
+          .filter((p) => p.status === "approved")
+          .map((p) => ({ ...p, comments: (p.comments || []).filter((c) => c.status === "approved") }));
+        return { posts: visible, pending: statsFor(posts), updatedAt: feedFingerprint(posts) };
+      }
+
+      if (method === "GET" && parts[0] === "pending" && parts.length === 1) {
+        return statsFor(await loadFeedPosts());
+      }
+
+      if (method === "POST" && parts[0] === "posts" && parts.length === 1) {
+        const author = String(body.author || "").trim().slice(0, 20);
+        const content = String(body.content || "").trim().slice(0, 5000);
+        const image = body.image ? String(body.image) : null;
+        if (!author) throw new Error("Nickname required");
+        if (!content && !image) throw new Error("Write something or add a photo");
+        if (image && image.length > 3 * 1024 * 1024) throw new Error("Image too large");
+        const id = Date.now();
+        const post = { id, author, createdAt: id, content, image, likes: 0, likedBy: [], comments: [], status: "pending" };
+        await fbDb.collection("posts").doc(String(id)).set(post);
+        return { ok: true, post };
+      }
+
+      if (method === "POST" && parts[0] === "posts" && parts[2] === "approve" && parts.length === 3) {
+        await fbDb.collection("posts").doc(parts[1]).update({ status: "approved" });
+        return { ok: true };
+      }
+
+      if (method === "DELETE" && parts[0] === "posts" && parts.length === 2) {
+        await fbDb.collection("posts").doc(parts[1]).delete();
+        return { ok: true };
+      }
+
+      if (method === "POST" && parts[0] === "posts" && parts[2] === "like" && parts.length === 3) {
+        const voter = String(body.voter || "anon").trim().slice(0, 40) || "anon";
+        const ref = fbDb.collection("posts").doc(parts[1]);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data().status !== "approved") throw new Error("Post not found");
+        const arr = Array.isArray(snap.data().likedBy) ? snap.data().likedBy : [];
+        const idx = arr.indexOf(voter);
+        const next = idx >= 0 ? arr.filter((v) => v !== voter) : arr.concat(voter);
+        await ref.update({ likedBy: next, likes: next.length });
+        return { ok: true, likes: next.length, liked: idx < 0 };
+      }
+
+      if (method === "POST" && parts[0] === "posts" && parts[2] === "comments" && parts.length === 3) {
+        const author = String(body.author || "").trim().slice(0, 20);
+        const text = String(body.text || "").trim().slice(0, 2000);
+        if (!author || !text) throw new Error("Nickname and comment required");
+        const ref = fbDb.collection("posts").doc(parts[1]);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data().status !== "approved") throw new Error("Post not found");
+        const comment = { id: Date.now(), author, text, status: "pending", createdAt: Date.now() };
+        const comments = Array.isArray(snap.data().comments) ? snap.data().comments : [];
+        await ref.update({ comments: comments.concat(comment) });
+        return { ok: true, comment };
+      }
+
+      if (method === "POST" && parts[0] === "posts" && parts[2] === "comments" && parts[4] === "approve" && parts.length === 5) {
+        const ref = fbDb.collection("posts").doc(parts[1]);
+        const snap = await ref.get();
+        const comments = snap.exists && Array.isArray(snap.data().comments) ? snap.data().comments : [];
+        const comment = comments.find((c) => c.id === Number(parts[3]));
+        if (!comment) throw new Error("Comment not found");
+        comment.status = "approved";
+        await ref.update({ comments });
+        return { ok: true };
+      }
+
+      if (method === "DELETE" && parts[0] === "posts" && parts[2] === "comments" && parts.length === 4) {
+        const ref = fbDb.collection("posts").doc(parts[1]);
+        const snap = await ref.get();
+        const comments = snap.exists && Array.isArray(snap.data().comments) ? snap.data().comments : [];
+        const next = comments.filter((c) => c.id !== Number(parts[3]));
+        if (next.length === comments.length) throw new Error("Comment not found");
+        await ref.update({ comments: next });
+        return { ok: true };
+      }
+
+      throw new Error("Not found");
+    }
+
+    async function verifyFirebaseAdmin(pass) {
+      if (!fbDb) return false;
+      try {
+        await fbDb.collection("adminChecks").add({ pass, at: Date.now() });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     async function api(path, options = {}) {
+      if (fbDb) return firestoreApi(path, options);
       if (liveBase === null) throw new Error("API not ready");
       return apiAt(liveBase, path, options);
     }
@@ -982,14 +1137,39 @@
       els.previewImg.removeAttribute("src");
     }
 
+    function compressImage(dataUrl, maxBytes = 700 * 1024) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let scale = Math.min(1, 1200 / img.width);
+          const draw = () => {
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+            const out = canvas.toDataURL("image/jpeg", 0.78);
+            if (out.length > maxBytes && scale > 0.35) {
+              scale *= 0.7;
+              draw();
+              return;
+            }
+            resolve(out);
+          };
+          draw();
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      });
+    }
+
     function handlePhotoSelect(file) {
       if (!file || !file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
         showToast("Choose an image under 2MB.");
         return;
       }
       const reader = new FileReader();
-      reader.onload = (ev) => {
-        selectedImage = ev.target.result;
+      reader.onload = async (ev) => {
+        selectedImage = await compressImage(ev.target.result);
         els.previewImg.src = selectedImage;
         els.photoPreview.classList.add("show");
       };
@@ -1027,6 +1207,8 @@
         let data;
         if (STATIC_MODE) {
           data = await fetchStaticPosts();
+        } else if (fbDb) {
+          data = await firestoreApi("/posts");
         } else if (liveBase === null) {
           const bases = REMOTE_API ? ["", REMOTE_API] : [""];
           let found = false;
@@ -1316,9 +1498,13 @@
     async function openAdmin() {
       const pass = prompt("Admin password:");
       if (pass === null) return;
+      if (fbDb && !(await verifyFirebaseAdmin(pass))) {
+        showToast("Wrong password.");
+        return;
+      }
       adminPass = pass;
       try {
-        if (liveBase === null) await refresh(false);
+        if (!fbDb && liveBase === null) await refresh(false);
         await api("/pending");
       } catch {
         adminPass = "";
