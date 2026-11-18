@@ -55,6 +55,10 @@ Localhost URLs deliberately bypass Firestore so local moderation writes stay in
 - `public/` — the site (`index.html`, images, `_redirects`, `api/posts.json` fallback)
 - `server.js` — local Node server + REST API (file storage in `data/posts.json`)
 - `netlify/functions/api.js` — optional Netlify Functions API (Netlify Blobs storage)
+- `functions/index.js` — prepared Firebase HTTPS API (Admin SDK + Cloud Storage);
+  not deployed yet. It would need a Firebase Blaze (billing) plan, then a
+  `hosting` rewrite for `/api/**` to the `api` function.
+- `storage.rules` — denies direct client access to the images bucket (Admin SDK only)
 - `scripts/build-static.js` — generates the read-only feed snapshot
 - `firestore.rules.example` — template for the deployed Firestore rules
 - `firebase.json` / `netlify.toml` — configs for those hosting options
